@@ -204,11 +204,15 @@ ErrorPtr SocketComm::startServer(ServerConnectionCB aServerConnectionHandler, in
       serving = true;
       serverConnectionHandler = aServerConnectionHandler;
       // - install callback for when FD becomes writable (or errors out)
-      mainLoop.registerPollHandler(
-        connectionFd,
-        POLLIN,
-        boost::bind(&SocketComm::connectionAcceptHandler, this, _1, _2)
-      );
+      if(connectionLess) {
+        setFd(connectionFd);
+        setReceiveHandler(boost::bind(&SocketComm::gotUdpData, this, _1));
+      } else {
+        mainLoop.registerPollHandler(
+          connectionFd,
+          POLLIN,
+          boost::bind(&SocketComm::connectionAcceptHandler, this, _1, _2));
+      }
     }
   }
   if (saP) {
@@ -217,6 +221,21 @@ ErrorPtr SocketComm::startServer(ServerConnectionCB aServerConnectionHandler, in
   return err;
 }
 
+void SocketComm::gotUdpData(ErrorPtr aError)
+{
+  if (Error::isOK(aError)) {
+    // no error, read data we've got so far
+    size_t dataSz = numBytesReady();
+    if (dataSz>0) {
+      // temporary buffer
+      uint8_t *buf = new uint8_t[dataSz];
+      size_t receivedBytes = receiveBytes(dataSz, buf, aError);
+      if (Error::isOK(aError)) {
+        LOG(LOG_DEBUG, "Got UDP %d bytes", receivedBytes);
+      }
+    }
+  }
+}
 
 bool SocketComm::connectionAcceptHandler(int aFd, int aPollFlags)
 {
